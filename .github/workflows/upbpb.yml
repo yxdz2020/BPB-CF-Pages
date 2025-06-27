@@ -20,19 +20,19 @@ jobs:
         id: get_release
         run: |
           set -e
-
           echo "Fetching latest release with worker.js..."
+
           api_url="https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases"
 
           asset_info=$(curl -s "$api_url" | jq -r '
-            [.[] 
-              | select(.assets[]?.name == "worker.js") 
+            map(
+              select((.assets | map(.name) | index("worker.js")) != null)
               | {
-                  version: .tag_name, 
-                  url: (.assets[] | select(.name == "worker.js") | .browser_download_url), 
+                  version: .tag_name,
+                  url: (.assets[] | select(.name == "worker.js") | .browser_download_url),
                   published: .published_at
                 }
-            ][0] | @base64')
+            )[0] | @base64')
 
           if [ -z "$asset_info" ]; then
             echo "Error: worker.js not found in any release"
@@ -85,7 +85,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add _worker.js
-          git commit -m "同步更新_worker.js ${{ steps.get_release.outputs.version }}（发布时间：${{ steps.get_release.outputs.published_at }}）"
+          git commit -m "同步更新 _worker.js ${{ steps.get_release.outputs.version }}（发布时间：${{ steps.get_release.outputs.published_at }}）"
           git push
 
       - name: 🎉 Delete old workflow run
@@ -94,4 +94,4 @@ jobs:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
           retain_days: 0
-          keep_minimum_runs: 50   
+          keep_minimum_runs: 50
