@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write # 允许写入仓库内容（用于 git push）
-  actions: read
+  actions: write # 允许删除旧的工作流（用于 Delete old workflow run）
 
 jobs:
   update-worker-js:
