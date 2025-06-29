@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: write # 允许写入仓库内容（用于 git push）
-  actions: write
+  actions: read
 
 jobs:
   update-worker-js:
