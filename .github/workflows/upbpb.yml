@@ -3,7 +3,6 @@ name: Update BPB-Worker-Panel
 
 on:
   schedule:
-    # 修正：'0 2 * * *' 对应北京时间上午 10:00
     - cron: '0 2 * * *' # 每天 UTC 时间 02:00 运行（北京时间 10:00）
   workflow_dispatch: # 允许手动触发该工作流
 
