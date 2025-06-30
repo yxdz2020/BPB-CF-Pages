@@ -3,7 +3,8 @@ name: Update BPB-Worker-Panel
 
 on:
   schedule:
-    - cron: '0 2 * * *' # 每天 UTC 时间 03:00 运行（北京时间 11:00）
+    # 修正：'0 2 * * *' 对应北京时间上午 10:00
+    - cron: '0 2 * * *' # 每天 UTC 时间 02:00 运行（北京时间 10:00）
   workflow_dispatch: # 允许手动触发该工作流
 
 jobs:
@@ -14,74 +15,51 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4 # 拉取当前仓库代码
 
-      - name: Get latest release info with worker.js
+      - name: Get latest release info
         id: get_release
         env:
-          GITHUB_TOKEN: ${{ github.token }} # 将 token 传入环境变量以供 gh CLI 使用
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -e
-          echo "Fetching latest release with worker.js using gh CLI..."
+          echo "Fetching latest release with worker.js..."
+          release_json=$(gh api "repos/bia-pain-bache/BPB-Worker-Panel/releases" --jq '
+            ( map( select((.assets | map(.name) | index("worker.js")) != null) ) | .[0] )
+            | {
+                asset_url: (.assets[] | select(.name == "worker.js") | .browser_download_url),
+                version: .tag_name,
+                published_at: .published_at
+              }
+          ')
 
-          # 使用 gh CLI (更现代、更简洁) 进行认证的 API 请求
-          asset_info=$(gh api "repos/bia-pain-bache/BPB-Worker-Panel/releases" --jq '
-            map(
-              select((.assets | map(.name) | index("worker.js")) != null)
-              | {
-                  version: .tag_name,
-                  url: (.assets[] | select(.name == "worker.js") | .browser_download_url),
-                  published: .published_at
-                }
-            )[0] | @base64'
-          )
-
-          # 增加对 API 调用失败或未找到文件时返回 null 的判断
-          # 'bnVsbA==' 是 'null' 的 Base64 编码
-          if [ -z "$asset_info" ] || [ "$asset_info" == "bnVsbA==" ]; then
+          if [ -z "$release_json" ] || [ "$release_json" == "null" ]; then
             echo "Error: worker.js not found in any release or API call failed"
             exit 1
           fi
 
-          # 解码函数保持不变
-          decode() {
-            echo "$asset_info" | base64 --decode | jq -r "$1"
-          }
-
-          asset_url=$(decode '.url')
-          version=$(decode '.version')
-          published_at=$(decode '.published')
-
-          # 将结果输出给后续步骤使用
-          echo "asset_url=$asset_url" >> $GITHUB_OUTPUT
-          echo "version=$version" >> $GITHUB_OUTPUT
-          echo "published_at=$published_at" >> $GITHUB_OUTPUT
+          # 直接将提取的信息格式化并写入 GITHUB_OUTPUT
+          echo "$release_json" | jq -r '"asset_url=\(.asset_url)\nversion=\(.version)\npublished_at=\(.published_at)"' >> $GITHUB_OUTPUT
 
       - name: Download worker.js and add version header
         run: |
           echo "Downloading from ${{ steps.get_release.outputs.asset_url }}"
-          curl -s --retry 3 --retry-delay 2 -L "${{ steps.get_release.outputs.asset_url }}" -o temp_worker.js
+          curl -fsSL --retry 3 --retry-delay 2 "${{ steps.get_release.outputs.asset_url }}" -o temp_worker.js
           {
-            echo "// 版本: ${{ steps.get_release.outputs.version }}"
-            echo "// 发布时间: ${{ steps.get_release.outputs.published_at }}"
+            echo "// Version: ${{ steps.get_release.outputs.version }}"
+            echo "// Published At: ${{ steps.get_release.outputs.published_at }}"
             cat temp_worker.js
           } > _worker.js
           rm temp_worker.js
 
-      - name: Check for changes or new file
+      - name: Check for file changes
         id: check_changes
         run: |
-          # 此步骤无需更改，逻辑正确
-          if [ ! -f _worker.js ]; then
+          # 使用 git diff --quiet，这是检查文件变更（包括新增）的最优方法
+          if git diff --quiet HEAD -- _worker.js; then
+            echo "No changes detected in _worker.js."
             echo "changed=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # 使用 git status --porcelain 可以更简洁地检查是否有变更
-          if git status --porcelain _worker.js | grep -qE '^( M| A)'; then
-            echo "File _worker.js has changes."
-            echo "changed=true" >> $GITHUB_OUTPUT
           else
-            echo "No changes in _worker.js."
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Changes detected in _worker.js (or it is a new file)."
+            echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Commit and push if changed
@@ -90,7 +68,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add _worker.js
-          git commit -m "同步更新 _worker.js ${{ steps.get_release.outputs.version }} (发布于 ${{ steps.get_release.outputs.published_at }})"
+          # 优化 Commit message 格式
+          git commit -m "chore: Sync _worker.js to version ${{ steps.get_release.outputs.version }}" -m "Release Date: ${{ steps.get_release.outputs.published_at }}"
           git push
 
       - name: 🎉 Delete old workflow runs
